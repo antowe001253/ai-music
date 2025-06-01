@@ -156,40 +156,93 @@ class Phase3Pipeline:
             return None
     
     def synthesize_vocals_with_diffsvc(self, melody_file: str) -> str:
-        """Synthesize vocals using Diff-SVC"""
+        """Synthesize vocals using Diff-SVC via subprocess with corrected paths"""
         print(f"\n🎤 Synthesizing vocals with Diff-SVC...")
         
         try:
             vocals_file = self.temp_dir / f"vocals_{int(time.time())}.wav"
             
-            # Run Diff-SVC inference
-            cmd = [
-                "python", "infer.py",
-                "--config", "config.yaml",
-                "--input", melody_file,
-                "--output", str(vocals_file)
-            ]
+            # Create a temporary script that calls infer.py with the right parameters
+            temp_script = self.temp_dir / "run_diffsvc.py"
             
-            print(f"🔄 Running: {' '.join(cmd)}")
+            script_content = f'''
+import sys
+import os
+sys.path.append('.')
+
+# Set the parameters for inference
+project_name = "base_model"
+model_path = "./checkpoints/base_model/model_ckpt_steps_100000.ckpt"  
+config_path = "./config.yaml"
+
+# Add the current directory to Python path
+if '.' not in sys.path:
+    sys.path.insert(0, '.')
+
+from infer_tools.infer_tool import Svc
+from infer import run_clip
+
+# Load model
+try:
+    print("Loading Diff-SVC model...")
+    model = Svc(project_name, config_path, hubert_gpu=True, model_path=model_path)
+    print("Model loaded successfully!")
+    
+    # Run inference
+    print("Running Diff-SVC inference...")
+    f0_tst, f0_pred, audio = run_clip(
+        svc_model=model,
+        key=0,  # No pitch adjustment
+        acc=20,  # Acceleration 
+        use_pe=True,
+        use_crepe=True,
+        thre=0.05,
+        use_gt_mel=False,
+        add_noise_step=500,
+        file_path="{melody_file}",
+        out_path="{vocals_file}",
+        project_name=project_name,
+        format='wav'
+    )
+    print("Diff-SVC inference completed!")
+    
+except Exception as e:
+    print(f"Error in Diff-SVC: {{e}}")
+    import traceback
+    traceback.print_exc()
+'''
             
+            # Write the temporary script
+            with open(temp_script, 'w') as f:
+                f.write(script_content)
+            
+            print(f"🔄 Running Diff-SVC via temporary script...")
+            
+            # Run the script
             result = subprocess.run(
-                cmd,
+                ["python", str(temp_script)],
                 cwd=os.getcwd(),
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minute timeout
+                timeout=300
             )
+            
+            print(f"📝 Diff-SVC stdout: {result.stdout}")
+            if result.stderr:
+                print(f"📝 Diff-SVC stderr: {result.stderr}")
             
             if result.returncode == 0 and Path(vocals_file).exists():
                 print(f"✅ Diff-SVC vocal synthesis successful")
                 print(f"💾 Saved: {vocals_file}")
                 return str(vocals_file)
             else:
-                print(f"❌ Diff-SVC failed: {result.stderr}")
+                print(f"❌ Diff-SVC failed with return code: {result.returncode}")
                 return None
                 
         except Exception as e:
             print(f"❌ Vocal synthesis failed: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def create_complete_song(self, prompt: str, duration: int = 15) -> dict:
