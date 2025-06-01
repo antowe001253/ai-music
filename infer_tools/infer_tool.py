@@ -211,6 +211,9 @@ class Svc:
             np.save(mel_path, mel_pred)
             np.save(f0_path, f0_pred)
         wav_pred = self.vocoder.spec2wav(mel_pred, f0=f0_pred)
+        if wav_pred is None:
+            # Vocoder failed, return empty audio as signal to use fallback
+            wav_pred = np.array([])
         return f0_gt, f0_pred, wav_pred
 
     def temporary_dict2processed_input(self, item_name, temp_dict, use_crepe=True, thre=0.05):

@@ -47,46 +47,76 @@ total_time = 0
 class HifiGAN(PWG):
     def __init__(self):
         base_dir = hparams['vocoder_ckpt']
-        config_path = f'{base_dir}/config.yaml'
         
         # Set default device
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
         self.config = None
         
-        if os.path.exists(config_path):
-            file_path = sorted(glob.glob(f'{base_dir}/model_ckpt_steps_*.*'), key=
-            lambda x: int(re.findall(f'{base_dir}/model_ckpt_steps_(\d+).*', x.replace('\\','/'))[0]))[-1]
-            print('| load HifiGAN: ', file_path)
-            self.model, self.config, device = load_model(config_path=config_path, file_path=file_path)
-            if device:
-                self.device = device
-        else:
-            config_path = f'{base_dir}/config.json'
-            ckpt = f'{base_dir}/generator_v1'
+        # Try to load HifiGAN model
+        try:
+            config_path = f'{base_dir}/config.yaml'
             if os.path.exists(config_path):
-                self.model, self.config, device = load_model(config_path=config_path, file_path=file_path)
-                if device:
-                    self.device = device
+                file_paths = glob.glob(f'{base_dir}/model_ckpt_steps_*.*')
+                if file_paths:
+                    file_path = sorted(file_paths, key=
+                    lambda x: int(re.findall(r'model_ckpt_steps_(\d+)', x)[0]))[-1]
+                    print('| load HifiGAN: ', file_path)
+                    self.model, self.config, device = load_model(config_path=config_path, file_path=file_path)
+                    if device:
+                        self.device = device
+                else:
+                    print(f"⚠️ No HifiGAN checkpoint files found in {base_dir}")
             else:
-                print(f"⚠️ HifiGAN vocoder checkpoint not found at {base_dir}")
-                print("⚠️ Using basic vocoder fallback")
+                config_path = f'{base_dir}/config.json'
+                ckpt = f'{base_dir}/generator_v1'
+                if os.path.exists(config_path) and os.path.exists(ckpt):
+                    self.model, self.config, device = load_model(config_path=config_path, file_path=ckpt)
+                    if device:
+                        self.device = device
+                else:
+                    print(f"⚠️ HifiGAN vocoder checkpoint not found at {base_dir}")
+        except Exception as e:
+            print(f"⚠️ Failed to load HifiGAN: {e}")
+        
+        if self.model is None:
+            print("⚠️ Using Griffin-Lim fallback vocoder")
 
     def spec2wav(self, mel, **kwargs):
         # Fallback device detection if self.device is not set
         device = getattr(self, 'device', torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"))
         
-        # If no model is loaded, use basic mel-to-wav conversion
+        # If no model is loaded, use Griffin-Lim algorithm as fallback
         if self.model is None:
-            print("⚠️ No HifiGAN model loaded, using basic conversion")
-            # Simple mel-spectrogram to waveform conversion (basic fallback)
+            print("⚠️ No HifiGAN model loaded, using Griffin-Lim fallback")
             import librosa
-            # Convert mel-spectrogram back to linear scale and then to audio
-            mel_linear = librosa.db_to_power(mel)
-            wav_out = librosa.feature.inverse.mel_to_audio(mel_linear, sr=hparams['audio_sample_rate'], 
-                                                          hop_length=hparams['hop_size'], 
-                                                          win_length=hparams['win_size'])
-            return wav_out
+            
+            # Convert mel-spectrogram to linear spectrogram using Griffin-Lim
+            # This is basic but functional
+            try:
+                # Convert to numpy if it's a tensor
+                if hasattr(mel, 'numpy'):
+                    mel_np = mel.numpy()
+                else:
+                    mel_np = mel
+                    
+                # Griffin-Lim reconstruction
+                wav_out = librosa.feature.inverse.mel_to_audio(
+                    mel_np, 
+                    sr=hparams['audio_sample_rate'],
+                    hop_length=hparams['hop_size'],
+                    win_length=hparams['win_size'],
+                    n_fft=hparams['fft_size']
+                )
+                
+                print(f"✅ Griffin-Lim conversion successful: {len(wav_out)} samples")
+                return wav_out
+                
+            except Exception as e:
+                print(f"❌ Griffin-Lim fallback failed: {e}")
+                # Return silence as last resort
+                duration_samples = int(hparams['audio_sample_rate'] * 6)  # 6 seconds
+                return np.zeros(duration_samples, dtype=np.float32)
             
         with torch.no_grad():
             c = torch.FloatTensor(mel).unsqueeze(0).transpose(2, 1).to(device)

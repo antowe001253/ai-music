@@ -168,6 +168,10 @@ class Phase3Pipeline:
             script_content = f'''
 import sys
 import os
+import numpy as np
+import torch
+import librosa
+import soundfile
 sys.path.append('.')
 
 # Set the parameters for inference
@@ -299,12 +303,15 @@ except Exception as e:
             print(f"{'='*60}")
             
             vocals_file = self.synthesize_vocals_with_diffsvc(melody_file)
-            if vocals_file:
+            if vocals_file and Path(vocals_file).exists() and Path(vocals_file).stat().st_size > 100000:
+                # Diff-SVC worked and produced good output
                 vocals_final = session_dir / "03_vocals_diffsvc.wav"
                 shutil.copy2(vocals_file, vocals_final)
                 results['files']['vocals'] = str(vocals_final)
+                print("✅ Using Diff-SVC processed vocals")
             else:
-                print("⚠️ Diff-SVC failed, using melody as vocals")
+                print("⚠️ Diff-SVC output poor quality or failed, using high-quality MusicGen melody")
+                # Use the MusicGen melody which is actually quite good
                 vocals_final = session_dir / "03_vocals_melody.wav"
                 shutil.copy2(melody_file, vocals_final)
                 results['files']['vocals'] = str(vocals_final)

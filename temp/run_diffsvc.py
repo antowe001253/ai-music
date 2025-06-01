@@ -1,6 +1,10 @@
 
 import sys
 import os
+import numpy as np
+import torch
+import librosa
+import soundfile
 sys.path.append('.')
 
 # Set the parameters for inference
@@ -32,8 +36,8 @@ try:
         thre=0.05,
         use_gt_mel=False,
         add_noise_step=500,
-        file_path="temp/melody_1748800893.wav",
-        out_path="temp/vocals_1748800893.wav",
+        file_path="temp/melody_1748802184.wav",
+        out_path="temp/vocals_1748802184.wav",
         project_name=project_name,
         format='wav'
     )
