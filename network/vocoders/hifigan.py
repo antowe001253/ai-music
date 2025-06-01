@@ -48,19 +48,46 @@ class HifiGAN(PWG):
     def __init__(self):
         base_dir = hparams['vocoder_ckpt']
         config_path = f'{base_dir}/config.yaml'
+        
+        # Set default device
+        self.device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+        self.model = None
+        self.config = None
+        
         if os.path.exists(config_path):
             file_path = sorted(glob.glob(f'{base_dir}/model_ckpt_steps_*.*'), key=
             lambda x: int(re.findall(f'{base_dir}/model_ckpt_steps_(\d+).*', x.replace('\\','/'))[0]))[-1]
             print('| load HifiGAN: ', file_path)
-            self.model, self.config, self.device = load_model(config_path=config_path, file_path=file_path)
+            self.model, self.config, device = load_model(config_path=config_path, file_path=file_path)
+            if device:
+                self.device = device
         else:
             config_path = f'{base_dir}/config.json'
             ckpt = f'{base_dir}/generator_v1'
             if os.path.exists(config_path):
-                self.model, self.config, self.device = load_model(config_path=config_path, file_path=file_path)
+                self.model, self.config, device = load_model(config_path=config_path, file_path=file_path)
+                if device:
+                    self.device = device
+            else:
+                print(f"⚠️ HifiGAN vocoder checkpoint not found at {base_dir}")
+                print("⚠️ Using basic vocoder fallback")
 
     def spec2wav(self, mel, **kwargs):
-        device = self.device
+        # Fallback device detection if self.device is not set
+        device = getattr(self, 'device', torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"))
+        
+        # If no model is loaded, use basic mel-to-wav conversion
+        if self.model is None:
+            print("⚠️ No HifiGAN model loaded, using basic conversion")
+            # Simple mel-spectrogram to waveform conversion (basic fallback)
+            import librosa
+            # Convert mel-spectrogram back to linear scale and then to audio
+            mel_linear = librosa.db_to_power(mel)
+            wav_out = librosa.feature.inverse.mel_to_audio(mel_linear, sr=hparams['audio_sample_rate'], 
+                                                          hop_length=hparams['hop_size'], 
+                                                          win_length=hparams['win_size'])
+            return wav_out
+            
         with torch.no_grad():
             c = torch.FloatTensor(mel).unsqueeze(0).transpose(2, 1).to(device)
             with utils.Timer('hifigan', print_time=hparams['profile_infer']):

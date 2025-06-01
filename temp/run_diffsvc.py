@@ -27,13 +27,13 @@ try:
         svc_model=model,
         key=0,  # No pitch adjustment
         acc=20,  # Acceleration 
-        use_pe=True,
+        use_pe=False,  # Fixed: PE not enabled in config
         use_crepe=True,
         thre=0.05,
         use_gt_mel=False,
         add_noise_step=500,
-        file_path="temp/melody_1748800179.wav",
-        out_path="temp/vocals_1748800179.wav",
+        file_path="temp/melody_1748800893.wav",
+        out_path="temp/vocals_1748800893.wav",
         project_name=project_name,
         format='wav'
     )
