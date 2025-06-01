@@ -54,9 +54,7 @@ class MelodyGenerationSystem:
         
         # Try models in order of stability
         models_to_try = [
-            "facebook/musicgen-small",     # Most stable
-            "facebook/musicgen-medium",    # Backup option
-            "facebook/musicgen-melody"     # Original (problematic)
+            "facebook/musicgen-small",     # Back to what was loading
         ]
         
         for model_name in models_to_try:
@@ -81,10 +79,13 @@ class MelodyGenerationSystem:
                             print("🔄 Trying next model...")
                             continue
                         else:
-                            print("🔧 Applying vocab fix...")
-                            # Apply vocab fix for small model
-                            while len(self.melody_processor.tokenizer) < model_vocab:
-                                self.melody_processor.tokenizer.add_tokens([f'<extra_token_{len(self.melody_processor.tokenizer)}>'])
+                            print("🔧 Applying minimal vocab fix...")
+                            # Apply minimal vocab fix - only add what's needed
+                            tokens_needed = model_vocab - tokenizer_vocab
+                            if tokens_needed > 0 and tokens_needed < 100:  # Safety limit
+                                for i in range(tokens_needed):
+                                    self.melody_processor.tokenizer.add_tokens([f'<pad_{i}>'])
+                                print(f"✅ Added {tokens_needed} tokens to match model vocab")
                 
                 # Move to device if not CPU
                 if self.device != "cpu":
@@ -138,7 +139,7 @@ class MelodyGenerationSystem:
             
             # Conservative generation parameters
             sample_rate = self.melody_model.config.audio_encoder.sampling_rate
-            max_new_tokens = min(512, int(duration * 32))  # Conservative token count
+            max_new_tokens = min(1500, max(256, int(duration * 50)))  # Back to session_508d302d settings
             
             print(f"📊 Generating {max_new_tokens} tokens at {sample_rate}Hz")
             

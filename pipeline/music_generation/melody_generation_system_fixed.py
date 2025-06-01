@@ -82,7 +82,7 @@ class MelodyGenerationSystem:
                             continue
                         else:
                             print("🔧 Applying vocab fix...")
-                            # Apply vocab fix for small model
+                            # Apply vocab fix for small model - EXACT same as session_508d302d
                             while len(self.melody_processor.tokenizer) < model_vocab:
                                 self.melody_processor.tokenizer.add_tokens([f'<extra_token_{len(self.melody_processor.tokenizer)}>'])
                 
@@ -144,12 +144,15 @@ class MelodyGenerationSystem:
                 # Use simple, standard generation parameters that work
                 audio_values = self.melody_model.generate(
                     **inputs,
-                    max_new_tokens=768,  # More conservative amount for ~15-20s
+                    max_new_tokens=1500,  # EXACT same as session_508d302d
                     do_sample=True,
                     temperature=1.0,
                     top_k=250,
+                    top_p=0.0,
+                    guidance_scale=3.0,  # This was in session_508d302d
+                    num_beams=1,
                     pad_token_id=self.melody_processor.tokenizer.pad_token_id or self.melody_processor.tokenizer.eos_token_id,
-                    guidance_scale=3.0  # Standard guidance
+                    use_cache=True
                 )
             
             # Process generated audio
