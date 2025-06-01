@@ -129,7 +129,7 @@ def process_utterance(wav_path,
     # get mel basis
     fmin = 0 if fmin == -1 else fmin
     fmax = sample_rate / 2 if fmax == -1 else fmax
-    mel_basis = librosa.filters.mel(sample_rate, fft_size, num_mels, fmin, fmax)
+    mel_basis = librosa.filters.mel(sr=sample_rate, n_fft=fft_size, n_mels=num_mels, fmin=fmin, fmax=fmax)
     mel = mel_basis @ spc
 
     if vocoder == 'pwg':
@@ -189,8 +189,13 @@ def get_pitch_parselmouth(wav_data, mel, hparams):
 
 
 def get_pitch_crepe(wav_data, mel, hparams, threshold=0.05):
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cuda")
+    # Use appropriate device (CUDA, MPS, or CPU)
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = torch.device("mps") 
+    else:
+        device = torch.device("cpu")
     # crepe只支持16khz采样率，需要重采样
     wav16k = resampy.resample(wav_data, hparams['audio_sample_rate'], 16000)
     wav16k_torch = torch.FloatTensor(wav16k).unsqueeze(0).to(device)

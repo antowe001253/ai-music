@@ -74,7 +74,8 @@ class SinusoidalPosEmb(nn.Module):
         self.half_dim = dim // 2
         self.emb = 9.21034037 / (self.half_dim - 1)
         self.emb = torch.exp(torch.arange(self.half_dim) * torch.tensor(-self.emb)).unsqueeze(0)
-        self.emb = self.emb.cuda()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.emb = self.emb.to(device)
 
     def forward(self, x):
         emb = self.emb * x

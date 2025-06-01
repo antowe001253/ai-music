@@ -111,7 +111,13 @@ class Svc:
         }
 
         self.model_path = model_path
-        self.dev = torch.device("cuda")
+        # Determine best available device
+        if torch.cuda.is_available():
+            self.dev = torch.device("cuda")
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            self.dev = torch.device("mps")
+        else:
+            self.dev = torch.device("cpu")
 
         self._ = set_hparams(config=config_name, exp_name=self.project_name, infer=True,
                              reset=True,
@@ -128,12 +134,19 @@ class Svc:
             spec_min=hparams['spec_min'], spec_max=hparams['spec_max'],
         )
         self.load_ckpt()
-        self.model.cuda()
+        # Use appropriate device
+        self.model.to(self.dev)
         hparams['hubert_gpu'] = hubert_gpu
         self.hubert = Hubertencoder(hparams['hubert_path'])
-        self.pe = PitchExtractor().cuda()
-        utils.load_ckpt(self.pe, hparams['pe_ckpt'], 'model', strict=True)
-        self.pe.eval()
+        
+        # Only load pitch extractor if enabled and checkpoint exists
+        if hparams.get('pe_enable', False) and 'pe_ckpt' in hparams:
+            self.pe = PitchExtractor().to(self.dev)
+            utils.load_ckpt(self.pe, hparams['pe_ckpt'], 'model', strict=True)
+            self.pe.eval()
+        else:
+            self.pe = None
+            
         self.vocoder = get_vocoder_cls(hparams)()
 
     def load_ckpt(self, model_name='model', force=True, strict=True):
@@ -153,8 +166,8 @@ class Svc:
         @timeit
         def diff_infer():
             outputs = self.model(
-                hubert.cuda(), spk_embed=spk_embed, mel2ph=mel2ph.cuda(), f0=f0.cuda(), uv=uv.cuda(),energy=energy.cuda(),
-                ref_mels=ref_mels.cuda(),
+                hubert.to(self.dev), spk_embed=spk_embed, mel2ph=mel2ph.to(self.dev), f0=f0.to(self.dev), uv=uv.to(self.dev),energy=energy.to(self.dev),
+                ref_mels=ref_mels.to(self.dev),
                 infer=True, **kwargs)
             return outputs
         outputs=diff_infer()
@@ -361,10 +374,11 @@ class SvcOnnx:
             spec_min=hparams['spec_min'], spec_max=hparams['spec_max'],
         )
         self.load_ckpt()
-        self.model.cuda()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(device)
         hparams['hubert_gpu'] = hubert_gpu
         self.hubert = Hubertencoder(hparams['hubert_path'])
-        self.pe = PitchExtractor().cuda()
+        self.pe = PitchExtractor().to(device)
         utils.load_ckpt(self.pe, hparams['pe_ckpt'], 'model', strict=True)
         self.pe.eval()
         self.vocoder = get_vocoder_cls(hparams)()
