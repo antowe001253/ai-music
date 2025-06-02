@@ -617,25 +617,31 @@ def convert_voice_with_rvc(
         # Initialize VC module with error handling
         logger.info("🔧 Initializing VC module...")
         try:
-            # Create a proper config object for Applio-RVC
-            class Config:
-                def __init__(self):
-                    self.device = 'cuda'
-                    self.fp16 = True
-                    self.x_pad = 1
-                    self.x_query = 6
-                    self.x_center = 38
-                    self.x_max = 41
-                    
-            config = Config()
-            
-            # Initialize VC with required parameters for Applio-RVC
-            vc = VC(tgt_sr=22050, config=config)
-            logger.info("✅ VC module created with proper config")
-            
-            logger.info(f"🎯 Loading voice model: {voice_model_path}")
-            vc.get_vc(voice_model_path)
-            logger.info("✅ Voice model loaded")
+            # Check if VC is the core module (not a class)
+            if 'module' in str(type(VC)) and 'core' in str(VC):
+                logger.info("🔧 Detected core module - using directly for inference")
+                vc = VC  # Use core module directly
+                logger.info("✅ Using core module directly (no initialization needed)")
+            else:
+                # Standard VC class initialization
+                class Config:
+                    def __init__(self):
+                        self.device = 'cuda'
+                        self.fp16 = True
+                        self.x_pad = 1
+                        self.x_query = 6
+                        self.x_center = 38
+                        self.x_max = 41
+                        
+                config = Config()
+                
+                # Initialize VC with required parameters for Applio-RVC
+                vc = VC(tgt_sr=22050, config=config)
+                logger.info("✅ VC module created with proper config")
+                
+                logger.info(f"🎯 Loading voice model: {voice_model_path}")
+                vc.get_vc(voice_model_path)
+                logger.info("✅ Voice model loaded")
             
         except Exception as e:
             logger.error(f"❌ VC initialization failed: {e}")
@@ -667,24 +673,98 @@ def convert_voice_with_rvc(
         else:
             logger.info("⚠️ No index file found, using without index")
         
-        # Convert voice with detailed logging
+        # Convert voice with core module method detection
         logger.info("🎵 Starting RVC voice conversion...")
         logger.info(f"⚙️ Settings: pitch_shift={pitch_shift}, filter_radius={filter_radius}")
         
-        converted_audio = vc.vc_single(
-            sid=0,
-            input_audio_path=tmp_input.name,
-            f0_up_key=pitch_shift,
-            f0_file=None,
-            f0_method="rmvpe",
-            file_index=index_file,
-            file_index2="", 
-            index_rate=0.75,  # Higher index rate for better voice quality
-            filter_radius=filter_radius,
-            resample_sr=0,
-            rms_mix_rate=0.25,
-            protect=0.33
-        )
+        try:
+            logger.info(f"🔍 VC object type: {type(vc)}")
+            logger.info(f"🔍 VC object string: {str(vc)}")
+            
+            # Check if this is the core module
+            if str(type(vc)) == "<module 'core' from '/rvc/core.py'>" or 'core' in str(vc):
+                logger.info("🔍 Core module detected - checking available methods...")
+                available_methods = [method for method in dir(vc) if not method.startswith('_')]
+                logger.info(f"📋 Available methods in core: {available_methods}")
+                
+                # Look for inference methods
+                inference_methods = [method for method in available_methods if any(keyword in method.lower() for keyword in ['infer', 'vc', 'convert', 'process', 'run'])]
+                logger.info(f"🎯 Potential inference methods: {inference_methods}")
+                
+                # Try the most promising inference methods
+                if hasattr(vc, 'run_infer_script'):
+                    logger.info("🎵 Trying core.run_infer_script with full parameters...")
+                    try:
+                        # Provide all required parameters based on the error message
+                        converted_audio = vc.run_infer_script(
+                            pitch=pitch_shift,              # f0_up_key equivalent
+                            index_rate=0.75,                # index mixing rate
+                            volume_envelope=1.0,            # volume envelope
+                            protect=0.33,                   # protect voiceless consonants
+                            hop_length=128,                 # hop length
+                            f0_method="rmvpe",              # pitch extraction method
+                            input_path=tmp_input.name,      # input audio file
+                            output_path="/tmp/rvc_output.wav",  # output path
+                            pth_path=voice_model_path,      # model file
+                            index_path=index_file if index_file else "",  # index file
+                            split_audio=False,              # don't split audio
+                            f0_autotune=False,              # no autotune
+                            f0_autotune_strength=1.0,       # autotune strength
+                            clean_audio=False,              # don't clean audio
+                            clean_strength=0.7,             # clean strength
+                            export_format="wav",            # output format
+                            f0_file="",                     # no f0 file
+                            embedder_model="contentvec"     # embedder model
+                        )
+                        logger.info("✅ SUCCESS with core.run_infer_script (full params)!")
+                        
+                        # If it returns a file path, load the audio
+                        if isinstance(converted_audio, str):
+                            import soundfile as sf
+                            audio_data, sample_rate = sf.read(converted_audio)
+                            converted_audio = (sample_rate, audio_data)
+                            logger.info("✅ Loaded audio from output file")
+                            
+                    except Exception as e:
+                        logger.info(f"⚠️ run_infer_script (full params) failed: {e}")
+                        raise Exception("run_infer_script method failed even with full parameters")
+                        
+                elif hasattr(vc, 'run_batch_infer_script'):
+                    logger.info("🎵 Trying core.run_batch_infer_script...")
+                    try:
+                        converted_audio = vc.run_batch_infer_script(
+                            input_path=tmp_input.name,
+                            model_path=voice_model_path,
+                            pitch_shift=pitch_shift
+                        )
+                        logger.info("✅ SUCCESS with core.run_batch_infer_script!")
+                    except Exception as e:
+                        logger.info(f"⚠️ run_batch_infer_script failed: {e}")
+                        raise Exception("run_batch_infer_script method failed")
+                        
+                else:
+                    logger.warning("⚠️ No known inference methods found in core module")
+                    raise Exception("No suitable core inference method found")
+            else:
+                # Standard vc_single method
+                converted_audio = vc.vc_single(
+                    sid=0,
+                    input_audio_path=tmp_input.name,
+                    f0_up_key=pitch_shift,
+                    f0_file=None,
+                    f0_method="rmvpe",
+                    file_index=index_file,
+                    file_index2="", 
+                    index_rate=0.75,
+                    filter_radius=filter_radius,
+                    resample_sr=0,
+                    rms_mix_rate=0.25,
+                    protect=0.33
+                )
+                
+        except Exception as conversion_error:
+            logger.warning(f"⚠️ RVC conversion failed: {conversion_error}")
+            raise  # Re-raise to trigger fallback
         
         logger.info(f"✅ RVC conversion completed: {type(converted_audio)}")
         if isinstance(converted_audio, tuple) and len(converted_audio) >= 2:
