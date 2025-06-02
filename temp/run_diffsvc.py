@@ -36,8 +36,8 @@ try:
         thre=0.05,
         use_gt_mel=False,
         add_noise_step=500,
-        file_path="temp/melody_1748802184.wav",
-        out_path="temp/vocals_1748802184.wav",
+        file_path="temp/melody_1748803541.wav",
+        out_path="temp/vocals_1748803541.wav",
         project_name=project_name,
         format='wav'
     )
