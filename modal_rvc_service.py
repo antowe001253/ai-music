@@ -359,6 +359,7 @@ def convert_voice_with_rvc(
     try:
         import sys
         import librosa  # Import librosa at function level
+        import soundfile as sf  # Import soundfile at function level
         import os
         import shutil
         
@@ -724,6 +725,28 @@ def convert_voice_with_rvc(
                             audio_data, sample_rate = sf.read(converted_audio)
                             converted_audio = (sample_rate, audio_data)
                             logger.info("✅ Loaded audio from output file")
+                        elif converted_audio is None:
+                            # Check if output file was created
+                            import os
+                            output_file = "/tmp/rvc_output.wav"
+                            if os.path.exists(output_file):
+                                import soundfile as sf
+                                audio_data, sample_rate = sf.read(output_file)
+                                converted_audio = (sample_rate, audio_data)
+                                logger.info(f"✅ Loaded audio from expected output file: {sample_rate}Hz, {len(audio_data)} samples")
+                            else:
+                                raise Exception("No audio output produced by run_infer_script")
+                        
+                        # Ensure we have proper tuple format
+                        if not isinstance(converted_audio, tuple) or len(converted_audio) != 2:
+                            logger.warning(f"⚠️ Unexpected audio format: {type(converted_audio)}")
+                            # Try to fix the format
+                            if hasattr(converted_audio, '__len__') and len(converted_audio) > 0:
+                                # If it's some other sequence, try to extract audio data
+                                converted_audio = (22050, converted_audio)  # Default sample rate
+                                logger.info("✅ Fixed audio format to standard tuple")
+                            else:
+                                raise Exception("Could not format audio output properly")
                             
                     except Exception as e:
                         logger.info(f"⚠️ run_infer_script (full params) failed: {e}")
