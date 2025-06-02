@@ -360,6 +360,7 @@ def convert_voice_with_rvc(
         import sys
         import librosa  # Import librosa at function level
         import soundfile as sf  # Import soundfile at function level
+        import numpy as np  # Import numpy for audio processing
         import os
         import shutil
         
@@ -713,13 +714,13 @@ def convert_voice_with_rvc(
                 if hasattr(vc, 'run_infer_script'):
                     logger.info("🎵 Trying core.run_infer_script with full parameters...")
                     try:
-                        # Provide all required parameters based on the error message
+                        # OPTIMIZED PARAMETERS FOR CLARITY
                         converted_audio = vc.run_infer_script(
                             pitch=pitch_shift,              # f0_up_key equivalent
-                            index_rate=0.75,                # index mixing rate
+                            index_rate=0.9,                 # HIGHER index rate for better voice quality
                             volume_envelope=1.0,            # volume envelope
-                            protect=0.33,                   # protect voiceless consonants
-                            hop_length=128,                 # hop length
+                            protect=0.5,                    # HIGHER protect for clearer consonants
+                            hop_length=64,                  # SMALLER hop length for better quality
                             f0_method="rmvpe",              # pitch extraction method
                             input_path=tmp_input.name,      # input audio file
                             output_path="/tmp/rvc_output.wav",  # output path
@@ -728,8 +729,8 @@ def convert_voice_with_rvc(
                             split_audio=False,              # don't split audio
                             f0_autotune=False,              # no autotune
                             f0_autotune_strength=1.0,       # autotune strength
-                            clean_audio=False,              # don't clean audio
-                            clean_strength=0.7,             # clean strength
+                            clean_audio=True,               # ENABLE audio cleaning for clarity
+                            clean_strength=0.8,             # HIGHER clean strength
                             export_format="wav",            # output format
                             f0_file="",                     # no f0 file
                             embedder_model="contentvec"     # embedder model
@@ -866,8 +867,37 @@ def convert_voice_with_rvc(
                     if os.path.exists(output_file_path):
                         logger.info(f"✅ Loading RVC audio from: {output_file_path}")
                         audio_data, sample_rate = sf.read(output_file_path)
+                        
+                        # CLARITY ENHANCEMENT POST-PROCESSING
+                        logger.info("🔧 Applying clarity enhancement...")
+                        
+                        # 1. Noise reduction
+                        import scipy.signal
+                        # Gentle high-pass filter to remove low-freq noise
+                        sos = scipy.signal.butter(2, 80, btype='high', fs=sample_rate, output='sos')
+                        audio_data = scipy.signal.sosfilt(sos, audio_data)
+                        
+                        # 2. Enhance vocal frequencies (1-4kHz boost)
+                        # Parametric EQ boost for vocal clarity
+                        frequencies = [1000, 2000, 3000]
+                        for freq in frequencies:
+                            if freq < sample_rate/2:
+                                # Gentle bell curve boost
+                                sos = scipy.signal.butter(2, [freq*0.8, freq*1.2], btype='band', fs=sample_rate, output='sos')
+                                boosted = scipy.signal.sosfilt(sos, audio_data)
+                                audio_data += boosted * 0.1  # 10% boost
+                        
+                        # 3. Gentle compression for consistency
+                        # Soft limiting to even out levels
+                        audio_data = np.tanh(audio_data * 1.2) / 1.2
+                        
+                        # 4. Final normalization
+                        max_val = np.max(np.abs(audio_data))
+                        if max_val > 0:
+                            audio_data = audio_data / max_val * 0.95  # Leave headroom
+                        
                         converted_audio = (sample_rate, audio_data)
-                        logger.info(f"📊 Loaded RVC output: {sample_rate} Hz, {len(audio_data)} samples")
+                        logger.info(f"📊 Enhanced RVC output: {sample_rate} Hz, {len(audio_data)} samples")
                     else:
                         logger.error(f"❌ RVC output file not found: {output_file_path}")
                         raise Exception("RVC output file missing")
