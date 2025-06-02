@@ -149,6 +149,13 @@ def setup_rvc_models():
                 f.write('{}')
             logger.info("✅ Created tts_voices.json file")
             
+            # CRITICAL: Also create tts_voices.json in the nested structure for relative path access
+            nested_tools_dir = Path("/rvc/rvc/lib/tools")
+            nested_tools_dir.mkdir(parents=True, exist_ok=True)
+            with open(str(nested_tools_dir / "tts_voices.json"), 'w') as f:
+                f.write('{}')
+            logger.info("✅ Created nested tts_voices.json file for relative path access")
+            
         except Exception as e:
             logger.warning(f"⚠️ Could not download/extract Barnabas model: {e}")
     
@@ -351,6 +358,28 @@ def convert_voice_with_rvc(
     """
     try:
         import sys
+        import librosa  # Import librosa at function level
+        import os
+        import shutil
+        
+        # CRITICAL: Create tts_voices.json file BEFORE any RVC imports
+        # RVC imports will fail if this file doesn't exist at the expected relative path
+        os.chdir('/rvc')  # Change to /rvc first
+        
+        # Create the file structure that RVC expects during imports
+        nested_tools_dir = "/rvc/rvc/lib/tools"
+        os.makedirs(nested_tools_dir, exist_ok=True)
+        
+        tts_json_path = f"{nested_tools_dir}/tts_voices.json"
+        if not os.path.exists(tts_json_path):
+            with open(tts_json_path, 'w') as f:
+                f.write('{}')  # Empty JSON
+            logger.info(f"✅ Created tts_voices.json before imports: {tts_json_path}")
+        
+        # Verify the relative path exists
+        relative_tts_path = "rvc/lib/tools/tts_voices.json"
+        logger.info(f"🔍 tts_voices.json accessible via relative path: {os.path.exists(relative_tts_path)}")
+        
         # Add Applio-RVC paths
         sys.path.insert(0, '/rvc')
         sys.path.insert(0, '/rvc/rvc')
@@ -359,49 +388,72 @@ def convert_voice_with_rvc(
         
         # Import from the actual Applio-RVC inference module
         try:
-            # Import the main RVC inference module and look for VC class
-            import rvc.infer.infer as rvc_infer
-            logger.info("✅ Successfully imported rvc.infer.infer module")
+            # TARGETED FIX: Import the correct VC class, not Pipeline objects
+            logger.info("🎯 Attempting targeted VC class imports (avoiding Pipeline objects)...")
             
-            # Try to import VC class from different locations
+            VC = None
+            
+            # Try specific locations for the actual VC class with get_vc method
             try:
-                from rvc.infer.infer import VC
-                logger.info("✅ Found VC class in rvc.infer.infer")
+                from rvc.lib.infer_pack.models import VC as RVC_VC
+                logger.info("✅ Found VC in rvc.lib.infer_pack.models")
+                # Verify this has get_vc method
+                if hasattr(RVC_VC, 'get_vc'):
+                    VC = RVC_VC
+                    logger.info("✅ Confirmed: VC class has get_vc method")
+                else:
+                    logger.warning("⚠️ VC from rvc.lib.infer_pack.models missing get_vc method")
             except ImportError:
+                logger.info("❌ rvc.lib.infer_pack.models import failed")
+            
+            if VC is None:
                 try:
-                    from rvc.lib.infer_pack.models import VC
-                    logger.info("✅ Found VC class in rvc.lib.infer_pack.models")
+                    from rvc.infer.modules.vc.modules import VC as RVC_VC
+                    logger.info("✅ Found VC in rvc.infer.modules.vc.modules")
+                    if hasattr(RVC_VC, 'get_vc'):
+                        VC = RVC_VC
+                        logger.info("✅ Confirmed: VC class has get_vc method")
+                    else:
+                        logger.warning("⚠️ VC from rvc.infer.modules.vc.modules missing get_vc method")
                 except ImportError:
-                    try:
-                        from rvc.infer.modules.vc.modules import VC
-                        logger.info("✅ Found VC class in rvc.infer.modules.vc.modules")
-                    except ImportError:
-                        # Search for any class that might be the voice converter
-                        for module_path in ['rvc', 'rvc.lib', 'rvc.infer']:
-                            try:
-                                module = __import__(module_path, fromlist=[''])
-                                if hasattr(module, 'VC'):
-                                    VC = getattr(module, 'VC')
-                                    logger.info(f"✅ Found VC class in {module_path}")
-                                    break
-                            except:
-                                continue
-                        else:
-                            # Create a dummy VC class as fallback
-                            class VC:
-                                def __init__(self):
-                                    pass
-                                def get_vc(self, model_path):
-                                    logger.info(f"Loading model: {model_path}")
-                                def vc_single(self, **kwargs):
-                                    # Return dummy audio data
-                                    import numpy as np
-                                    return (22050, np.zeros(101440))
-                            logger.info("⚠️ Using fallback VC class")
+                    logger.info("❌ rvc.infer.modules.vc.modules import failed")
+            
+            # SKIP rvc.infer.infer since it gives us Pipeline objects
+            logger.info("🚫 Skipping rvc.infer.infer (returns Pipeline objects)")
+            
+            if VC is None:
+                # Try core module as fallback
+                try:
+                    import core
+                    if hasattr(core, 'VC'):
+                        VC = core.VC
+                        logger.info("✅ Found VC in core module")
+                except ImportError:
+                    logger.info("❌ Core module import failed")
+            
+            if VC is None:
+                raise ImportError("No VC class with get_vc method found")
+            
+            logger.info(f"🔍 Final VC class type: {type(VC)}")
+            logger.info(f"🔍 VC has get_vc method: {hasattr(VC, 'get_vc')}")
             
             # Also try to import load_audio function
-            from rvc.lib.utils import load_audio
-            logger.info("✅ Successfully imported load_audio")
+            try:
+                from rvc.lib.utils import load_audio
+                logger.info("✅ Successfully imported load_audio")
+            except ImportError:
+                try:
+                    import librosa
+                    def load_audio(path, sr=16000):
+                        audio, _ = librosa.load(path, sr=sr)
+                        return audio
+                    logger.info("✅ Using librosa for load_audio")
+                except Exception:
+                    def load_audio(path, sr=16000):
+                        import soundfile as sf
+                        audio, _ = sf.read(path)
+                        return audio
+                    logger.info("✅ Using soundfile for load_audio")
             
         except ImportError as e:
             logger.error(f"❌ Applio-RVC import failed: {e}")
@@ -534,6 +586,16 @@ def convert_voice_with_rvc(
             shutil.copy2(hubert_src, hubert_dst)
             logger.info(f"✅ Copied hubert_base.pt: {hubert_src} -> {hubert_dst}")
         
+        # ADDITIONAL FIX: Create tts_voices.json in the correct relative path location
+        tts_tools_dir = "/rvc/rvc/lib/tools"
+        os.makedirs(tts_tools_dir, exist_ok=True)
+        
+        tts_voices_path = f"{tts_tools_dir}/tts_voices.json"
+        if not os.path.exists(tts_voices_path):
+            with open(tts_voices_path, 'w') as f:
+                f.write('{}')  # Empty JSON
+            logger.info(f"✅ Created tts_voices.json: {tts_voices_path}")
+        
         # Step 3: Verify the solution works
         current_dir = os.getcwd()
         logger.info(f"📍 Current working directory: {current_dir}")
@@ -541,13 +603,15 @@ def convert_voice_with_rvc(
         # Check if RVC can now find the files
         rvc_rmvpe_path = "rvc/models/predictors/rmvpe.pt"
         rvc_hubert_path = "rvc/models/predictors/hubert_base.pt"
+        rvc_tts_json_path = "rvc/lib/tools/tts_voices.json"
         logger.info(f"🔍 {rvc_rmvpe_path} exists: {os.path.exists(rvc_rmvpe_path)}")
         logger.info(f"🔍 {rvc_hubert_path} exists: {os.path.exists(rvc_hubert_path)}")
+        logger.info(f"🔍 {rvc_tts_json_path} exists: {os.path.exists(rvc_tts_json_path)}")
         
-        if os.path.exists(rvc_rmvpe_path) and os.path.exists(rvc_hubert_path):
-            logger.info("🎉 SOLUTION IMPLEMENTED: RVC should find models now!")
+        if os.path.exists(rvc_rmvpe_path) and os.path.exists(rvc_hubert_path) and os.path.exists(rvc_tts_json_path):
+            logger.info("🎉 SOLUTION IMPLEMENTED: RVC should find all files now!")
         else:
-            logger.error("❌ Solution failed - files not accessible")
+            logger.error("❌ Solution incomplete - some files not accessible via relative paths")
         
         # Initialize VC module with error handling
         logger.info("🔧 Initializing VC module...")
