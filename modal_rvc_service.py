@@ -457,6 +457,98 @@ def convert_voice_with_rvc(
             model_size = Path(voice_model_path).stat().st_size / (1024 * 1024)
             logger.info(f"📊 Model size: {model_size:.1f} MB")
         
+        # SIMPLE LOGGING: Just show current path and contents (no changes)
+        import os
+        current_path = os.getcwd()
+        logger.info(f"📍 Current working directory: {current_path}")
+        
+        try:
+            dir_contents = os.listdir('.')
+            logger.info(f"📂 Contents of current directory: {dir_contents[:10]}")
+        except Exception as e:
+            logger.info(f"❌ Failed to list directory: {e}")
+        
+        # NEW: List what's in root directory /
+        try:
+            root_contents = os.listdir('/')
+            logger.info(f"📁 Contents of root directory /: {root_contents}")
+        except Exception as e:
+            logger.info(f"❌ Failed to list root directory: {e}")
+        
+        # NEW: Check /models path
+        logger.info(f"🔍 /models exists: {os.path.exists('/models')}")
+        logger.info(f"🔍 models (relative) exists: {os.path.exists('models')}")
+        
+        if os.path.exists('/models'):
+            try:
+                models_contents = os.listdir('/models')
+                logger.info(f"📂 Contents of /models: {models_contents}")
+            except Exception as e:
+                logger.info(f"❌ Failed to list /models: {e}")
+        
+        # NEW: Get absolute path of models if it exists as relative
+        if os.path.exists('models'):
+            models_abs_path = os.path.abspath('models')
+            logger.info(f"📍 Absolute path of relative 'models': {models_abs_path}")
+        
+        # NEW: List contents of /models/rvc specifically
+        if os.path.exists('/models/rvc'):
+            try:
+                models_rvc_contents = os.listdir('/models/rvc')
+                logger.info(f"📂 Contents of /models/rvc: {models_rvc_contents}")
+            except Exception as e:
+                logger.info(f"❌ Failed to list /models/rvc: {e}")
+        
+        # NEW: Check if /rvc directory exists and list its contents
+        logger.info(f"🔍 /rvc exists: {os.path.exists('/rvc')}")
+        if os.path.exists('/rvc'):
+            try:
+                rvc_contents = os.listdir('/rvc')
+                logger.info(f"📂 Contents of /rvc: {rvc_contents[:15]}")
+            except Exception as e:
+                logger.info(f"❌ Failed to list /rvc: {e}")
+        
+        # SOLUTION: Change to /rvc directory and copy models to the right location
+        import os
+        import shutil
+        
+        # Step 1: Change working directory to /rvc
+        os.chdir('/rvc')
+        logger.info("✅ Changed working directory to /rvc")
+        
+        # Step 2: Copy model files from /models/rvc/ to /rvc/rvc/models/predictors/
+        source_dir = "/models/rvc"
+        target_dir = "/rvc/rvc/models/predictors"
+        
+        # Copy rmvpe.pt
+        rmvpe_src = f"{source_dir}/rmvpe.pt"
+        rmvpe_dst = f"{target_dir}/rmvpe.pt"
+        if os.path.exists(rmvpe_src) and not os.path.exists(rmvpe_dst):
+            shutil.copy2(rmvpe_src, rmvpe_dst)
+            logger.info(f"✅ Copied rmvpe.pt: {rmvpe_src} -> {rmvpe_dst}")
+        
+        # Copy hubert_base.pt
+        hubert_src = f"{source_dir}/hubert_base.pt"
+        hubert_dst = f"{target_dir}/hubert_base.pt"
+        if os.path.exists(hubert_src) and not os.path.exists(hubert_dst):
+            shutil.copy2(hubert_src, hubert_dst)
+            logger.info(f"✅ Copied hubert_base.pt: {hubert_src} -> {hubert_dst}")
+        
+        # Step 3: Verify the solution works
+        current_dir = os.getcwd()
+        logger.info(f"📍 Current working directory: {current_dir}")
+        
+        # Check if RVC can now find the files
+        rvc_rmvpe_path = "rvc/models/predictors/rmvpe.pt"
+        rvc_hubert_path = "rvc/models/predictors/hubert_base.pt"
+        logger.info(f"🔍 {rvc_rmvpe_path} exists: {os.path.exists(rvc_rmvpe_path)}")
+        logger.info(f"🔍 {rvc_hubert_path} exists: {os.path.exists(rvc_hubert_path)}")
+        
+        if os.path.exists(rvc_rmvpe_path) and os.path.exists(rvc_hubert_path):
+            logger.info("🎉 SOLUTION IMPLEMENTED: RVC should find models now!")
+        else:
+            logger.error("❌ Solution failed - files not accessible")
+        
         # Initialize VC module with error handling
         logger.info("🔧 Initializing VC module...")
         try:
