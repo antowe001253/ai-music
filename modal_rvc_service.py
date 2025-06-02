@@ -679,6 +679,23 @@ def convert_voice_with_rvc(
         logger.info(f"⚙️ Settings: pitch_shift={pitch_shift}, filter_radius={filter_radius}")
         
         try:
+            # DETAILED DEBUG: Log everything before conversion
+            logger.info(f"🔍 PRE-CONVERSION DEBUG:")
+            logger.info(f"  📁 voice_model_path: {voice_model_path}")
+            logger.info(f"  📋 index_file: {index_file}")
+            logger.info(f"  🎵 audio length: {len(audio)} samples")
+            logger.info(f"  🔧 VC object type: {type(vc)}")
+            logger.info(f"  🎯 pitch_shift: {pitch_shift}")
+            logger.info(f"  🔄 filter_radius: {filter_radius}")
+            
+            # Check if model files actually exist
+            logger.info(f"  ✅ voice_model exists: {Path(voice_model_path).exists()}")
+            if index_file:
+                logger.info(f"  ✅ index_file exists: {Path(index_file).exists()}")
+            else:
+                logger.info(f"  ⚠️ no index file specified")
+                
+            logger.info("🚀 Starting actual RVC conversion now...")
             logger.info(f"🔍 VC object type: {type(vc)}")
             logger.info(f"🔍 VC object string: {str(vc)}")
             
@@ -750,6 +767,9 @@ def convert_voice_with_rvc(
                             
                     except Exception as e:
                         logger.info(f"⚠️ run_infer_script (full params) failed: {e}")
+                        logger.error(f"❌ DETAILED ERROR: {type(e).__name__}: {str(e)}")
+                        import traceback
+                        logger.error(f"❌ FULL TRACEBACK: {traceback.format_exc()}")
                         raise Exception("run_infer_script method failed even with full parameters")
                         
                 elif hasattr(vc, 'run_batch_infer_script'):
@@ -787,11 +807,106 @@ def convert_voice_with_rvc(
                 
         except Exception as conversion_error:
             logger.warning(f"⚠️ RVC conversion failed: {conversion_error}")
-            raise  # Re-raise to trigger fallback
+            
+            # Before falling back, check if RVC actually created a file
+            output_file = "/tmp/rvc_output.wav"
+            if os.path.exists(output_file):
+                logger.info("🔍 RVC output file exists despite error - trying to use it...")
+                try:
+                    audio_data, sample_rate = sf.read(output_file)
+                    converted_audio = (sample_rate, audio_data)
+                    logger.info(f"✅ Successfully loaded RVC output: {sample_rate}Hz, {len(audio_data)} samples")
+                    # Skip the fallback since we have real RVC output
+                except Exception as load_error:
+                    logger.error(f"❌ Failed to load RVC output file: {load_error}")
+                    raise  # This will trigger the fallback
+            else:
+                raise  # This will trigger the fallback
         
         logger.info(f"✅ RVC conversion completed: {type(converted_audio)}")
-        if isinstance(converted_audio, tuple) and len(converted_audio) >= 2:
-            logger.info(f"📊 Output: {converted_audio[0]} Hz, {len(converted_audio[1])} samples")
+        
+        # DETAILED TUPLE DEBUGGING - Log everything about the tuple
+        logger.info(f"🔍 TUPLE DEBUG - Type: {type(converted_audio)}")
+        logger.info(f"🔍 TUPLE DEBUG - Has __len__: {hasattr(converted_audio, '__len__')}")
+        
+        if hasattr(converted_audio, '__len__'):
+            try:
+                length = len(converted_audio)
+                logger.info(f"🔍 TUPLE DEBUG - Length: {length}")
+                
+                # Log each element in the tuple
+                for i in range(min(length, 5)):  # Only first 5 elements to avoid spam
+                    try:
+                        element = converted_audio[i]
+                        logger.info(f"🔍 TUPLE DEBUG - Element[{i}]: {type(element)} = {str(element)[:100]}")
+                    except Exception as elem_error:
+                        logger.error(f"🔍 TUPLE DEBUG - Element[{i}] access failed: {elem_error}")
+                        
+            except Exception as len_error:
+                logger.error(f"🔍 TUPLE DEBUG - Length check failed: {len_error}")
+        
+        # Log string representation
+        try:
+            str_repr = str(converted_audio)[:200]  # First 200 chars
+            logger.info(f"🔍 TUPLE DEBUG - String repr: {str_repr}")
+        except Exception as str_error:
+            logger.error(f"🔍 TUPLE DEBUG - String conversion failed: {str_error}")
+        
+        # CAREFUL tuple handling to avoid index errors
+        try:
+            if isinstance(converted_audio, tuple) and len(converted_audio) >= 2:
+                # Check if we got strings instead of audio data
+                if isinstance(converted_audio[0], str) and isinstance(converted_audio[1], str):
+                    logger.info("🔧 DETECTED STRING TUPLE: RVC returned file paths, not audio data")
+                    logger.info(f"📝 Success message: {converted_audio[0]}")
+                    logger.info(f"📁 Output file path: {converted_audio[1]}")
+                    
+                    # Load audio from the file path
+                    output_file_path = converted_audio[1]
+                    if os.path.exists(output_file_path):
+                        logger.info(f"✅ Loading RVC audio from: {output_file_path}")
+                        audio_data, sample_rate = sf.read(output_file_path)
+                        converted_audio = (sample_rate, audio_data)
+                        logger.info(f"📊 Loaded RVC output: {sample_rate} Hz, {len(audio_data)} samples")
+                    else:
+                        logger.error(f"❌ RVC output file not found: {output_file_path}")
+                        raise Exception("RVC output file missing")
+                else:
+                    # Standard format (sample_rate, audio_data)
+                    sample_rate, audio_data = converted_audio[0], converted_audio[1]
+                    logger.info(f"📊 Output: {sample_rate} Hz, {len(audio_data)} samples")
+            elif isinstance(converted_audio, tuple) and len(converted_audio) == 1:
+                # Handle single-element tuple
+                logger.info(f"📊 Single-element tuple: {converted_audio[0]}")
+                # Check if RVC created an output file instead
+                output_file = "/tmp/rvc_output.wav"
+                if os.path.exists(output_file):
+                    audio_data, sample_rate = sf.read(output_file)
+                    converted_audio = (sample_rate, audio_data)
+                    logger.info(f"✅ Loaded RVC output from file: {sample_rate}Hz, {len(audio_data)} samples")
+                else:
+                    raise Exception("Single-element tuple and no output file found")
+            else:
+                logger.warning(f"⚠️ Unexpected converted_audio format: {type(converted_audio)}, length: {len(converted_audio) if hasattr(converted_audio, '__len__') else 'N/A'}")
+                # Try to load from output file
+                output_file = "/tmp/rvc_output.wav"
+                if os.path.exists(output_file):
+                    audio_data, sample_rate = sf.read(output_file)
+                    converted_audio = (sample_rate, audio_data)
+                    logger.info(f"✅ Loaded RVC output from fallback file: {sample_rate}Hz, {len(audio_data)} samples")
+                else:
+                    raise Exception("Unexpected audio format and no output file")
+        except Exception as tuple_error:
+            logger.error(f"❌ Tuple handling error: {tuple_error}")
+            # Final attempt - load directly from RVC output file
+            output_file = "/tmp/rvc_output.wav"
+            if os.path.exists(output_file):
+                logger.info("🔧 Loading RVC output directly from file...")
+                audio_data, sample_rate = sf.read(output_file)
+                converted_audio = (sample_rate, audio_data)
+                logger.info(f"✅ Successfully rescued RVC output: {sample_rate}Hz, {len(audio_data)} samples")
+            else:
+                raise Exception("Could not handle tuple and no output file exists")
         
         # Save converted audio
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_output:
