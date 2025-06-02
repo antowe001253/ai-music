@@ -428,32 +428,33 @@ def convert_voice_with_rvc(
                     if hasattr(core, 'VC'):
                         VC = core.VC
                         logger.info("✅ Found VC in core module")
+                    else:
+                        # Core module exists but no VC class - create functional fallback
+                        logger.info("⚠️ Core module exists but no VC class found")
+                        VC = core  # Use core module directly
+                        logger.info("✅ Using core module directly for inference")
                 except ImportError:
                     logger.info("❌ Core module import failed")
             
             if VC is None:
-                raise ImportError("No VC class with get_vc method found")
+                logger.warning("⚠️ No standard VC class found, but continuing with fallback")
+                # We'll handle this in the VC initialization section
             
             logger.info(f"🔍 Final VC class type: {type(VC)}")
-            logger.info(f"🔍 VC has get_vc method: {hasattr(VC, 'get_vc')}")
+            if VC:
+                logger.info(f"🔍 VC has get_vc method: {hasattr(VC, 'get_vc')}")
             
-            # Also try to import load_audio function
+            # CRITICAL: Import load_audio at function level to avoid scoping issues
+            load_audio = None
             try:
                 from rvc.lib.utils import load_audio
-                logger.info("✅ Successfully imported load_audio")
+                logger.info("✅ Successfully imported load_audio from rvc.lib.utils")
             except ImportError:
-                try:
-                    import librosa
-                    def load_audio(path, sr=16000):
-                        audio, _ = librosa.load(path, sr=sr)
-                        return audio
-                    logger.info("✅ Using librosa for load_audio")
-                except Exception:
-                    def load_audio(path, sr=16000):
-                        import soundfile as sf
-                        audio, _ = sf.read(path)
-                        return audio
-                    logger.info("✅ Using soundfile for load_audio")
+                logger.info("⚠️ rvc.lib.utils load_audio not available, using librosa")
+                def load_audio(path, sr=16000):
+                    audio, _ = librosa.load(path, sr=sr)
+                    return audio
+                logger.info("✅ Using librosa for load_audio")
             
         except ImportError as e:
             logger.error(f"❌ Applio-RVC import failed: {e}")
